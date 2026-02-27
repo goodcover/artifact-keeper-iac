@@ -84,6 +84,56 @@ spec:
               done
               echo "Meilisearch is ready"
         {{- end }}
+        {{- if .Values.dependencyTrack.enabled }}
+        - name: dtrack-init
+          image: alpine:3.20
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              apk add --no-cache curl jq >/dev/null 2>&1
+              DT_URL="http://{{ include "artifact-keeper.fullname" . }}-dtrack:8080"
+              DT_ADMIN_USER="admin"
+              DT_DEFAULT_PASS="admin"
+              DT_NEW_PASS="${DEPENDENCY_TRACK_ADMIN_PASSWORD}"
+              API_KEY_FILE="/shared/dtrack-api-key"
+
+              echo "[dtrack-init] Waiting for Dependency-Track at $DT_URL ..."
+              for i in $(seq 1 60); do
+                if curl -sf "$DT_URL/api/version" > /dev/null 2>&1; then break; fi
+                if [ "$i" -eq 60 ]; then echo "[dtrack-init] ERROR: timeout"; exit 1; fi
+                sleep 5
+              done
+
+              TOKEN=$(curl -sf -X POST "$DT_URL/api/v1/user/login" \
+                -H "Content-Type: application/x-www-form-urlencoded" \
+                -d "username=${DT_ADMIN_USER}&password=${DT_NEW_PASS}" 2>/dev/null || true)
+
+              if [ -z "$TOKEN" ] || echo "$TOKEN" | grep -qi "FORCE_PASSWORD_CHANGE"; then
+                curl -sf -o /dev/null -X POST "$DT_URL/api/v1/user/forceChangePassword" \
+                  -H "Content-Type: application/x-www-form-urlencoded" \
+                  -d "username=${DT_ADMIN_USER}&password=${DT_DEFAULT_PASS}&newPassword=${DT_NEW_PASS}&confirmPassword=${DT_NEW_PASS}"
+                TOKEN=$(curl -sf -X POST "$DT_URL/api/v1/user/login" \
+                  -H "Content-Type: application/x-www-form-urlencoded" \
+                  -d "username=${DT_ADMIN_USER}&password=${DT_NEW_PASS}" 2>/dev/null || true)
+              fi
+
+              if [ -z "$TOKEN" ]; then echo "[dtrack-init] ERROR: auth failed"; exit 1; fi
+
+              API_KEY=$(curl -sf "$DT_URL/api/v1/team" \
+                -H "Authorization: Bearer $TOKEN" | \
+                jq -r '.[] | select(.name == "Automation") | .apiKeys[0].key // empty')
+
+              if [ -z "$API_KEY" ]; then echo "[dtrack-init] ERROR: no API key"; exit 1; fi
+
+              echo "$API_KEY" > "$API_KEY_FILE"
+              echo "[dtrack-init] Done"
+          env:
+            - name: DEPENDENCY_TRACK_ADMIN_PASSWORD
+              value: {{ .Values.dependencyTrack.adminPassword | quote }}
+          volumeMounts:
+            - name: shared-config
+              mountPath: /shared
+        {{- end }}
       containers:
         - name: backend
           image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
@@ -235,7 +285,6 @@ spec:
         {{- end }}
         {{- if .Values.dependencyTrack.enabled }}
         - name: shared-config
-          persistentVolumeClaim:
-            claimName: {{ include "artifact-keeper.fullname" . }}-shared-config
+          emptyDir: {}
         {{- end }}
 {{- end }}
