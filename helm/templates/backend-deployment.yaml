@@ -88,6 +88,9 @@ spec:
         {{- if .Values.dependencyTrack.enabled }}
         - name: dtrack-init
           image: alpine:3.20
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -104,15 +107,21 @@ spec:
                 if [ "$i" -eq 60 ]; then echo "[dtrack-init] ERROR: timeout"; exit 1; fi
                 sleep 5
               done
-
+              
+              echo "[dtrack-init] Dtrack is up..."
+              
+              echo "[dtrack] Logging in as admin..."
               TOKEN=$(curl -sf -X POST "$DT_URL/api/v1/user/login" \
                 -H "Content-Type: application/x-www-form-urlencoded" \
                 -d "username=${DT_ADMIN_USER}&password=${DT_NEW_PASS}" 2>/dev/null || true)
 
               if [ -z "$TOKEN" ] || echo "$TOKEN" | grep -qi "FORCE_PASSWORD_CHANGE"; then
+                echo "[dtrack] Changing admin password..."
                 curl -sf -o /dev/null -X POST "$DT_URL/api/v1/user/forceChangePassword" \
                   -H "Content-Type: application/x-www-form-urlencoded" \
                   -d "username=${DT_ADMIN_USER}&password=${DT_DEFAULT_PASS}&newPassword=${DT_NEW_PASS}&confirmPassword=${DT_NEW_PASS}"
+                
+                echo "[dtrack] Getting token"
                 TOKEN=$(curl -sf -X POST "$DT_URL/api/v1/user/login" \
                   -H "Content-Type: application/x-www-form-urlencoded" \
                   -d "username=${DT_ADMIN_USER}&password=${DT_NEW_PASS}" 2>/dev/null || true)
@@ -237,7 +246,7 @@ spec:
           image: "{{ .Values.trivy.image.repository }}:{{ .Values.trivy.image.tag }}"
           imagePullPolicy: IfNotPresent
           command: ["trivy"]
-          args: ["server", "--listen", "0.0.0.0:8090"]
+          args: ["server", "--listen", "0.0.0.0:8090", "--cache-dir", "/.cache"]
           ports:
             - name: trivy-http
               containerPort: 8090
@@ -260,7 +269,7 @@ spec:
             failureThreshold: 3
           volumeMounts:
             - name: trivy-cache
-              mountPath: /root/.cache/trivy
+              mountPath: /.cache
             {{- if .Values.backend.scanWorkspace.enabled }}
             - name: scan-workspace
               mountPath: /scan-workspace
