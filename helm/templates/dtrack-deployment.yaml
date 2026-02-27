@@ -54,6 +54,10 @@ spec:
               done
               echo "PostgreSQL is ready"
       {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
         - name: dtrack-api
           image: "{{ .Values.dependencyTrack.image.repository }}:{{ .Values.dependencyTrack.image.tag }}"
