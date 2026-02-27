@@ -134,7 +134,7 @@ spec:
             {{- end }}
             {{- if .Values.trivy.enabled }}
             - name: TRIVY_URL
-              value: "http://{{ include "artifact-keeper.fullname" . }}-trivy:8090"
+              value: "http://localhost:8090"
             - name: SCAN_WORKSPACE_PATH
               value: "/scan-workspace"
             {{- end }}
@@ -181,6 +181,41 @@ spec:
               mountPath: /shared
               readOnly: true
             {{- end }}
+        {{- if .Values.trivy.enabled }}
+        - name: trivy
+          image: "{{ .Values.trivy.image.repository }}:{{ .Values.trivy.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          command: ["trivy"]
+          args: ["server", "--listen", "0.0.0.0:8090"]
+          ports:
+            - name: trivy-http
+              containerPort: 8090
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.trivy.resources | nindent 12 }}
+          readinessProbe:
+            tcpSocket:
+              port: 8090
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8090
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: trivy-cache
+              mountPath: /root/.cache/trivy
+            {{- if .Values.backend.scanWorkspace.enabled }}
+            - name: scan-workspace
+              mountPath: /scan-workspace
+              readOnly: true
+            {{- end }}
+        {{- end }}
       volumes:
         - name: storage
           {{- if .Values.backend.persistence.enabled }}
@@ -191,8 +226,12 @@ spec:
           {{- end }}
         {{- if .Values.backend.scanWorkspace.enabled }}
         - name: scan-workspace
+          emptyDir: {}
+        {{- end }}
+        {{- if .Values.trivy.enabled }}
+        - name: trivy-cache
           persistentVolumeClaim:
-            claimName: {{ include "artifact-keeper.fullname" . }}-scan-workspace
+            claimName: {{ include "artifact-keeper.fullname" . }}-trivy-cache
         {{- end }}
         {{- if .Values.dependencyTrack.enabled }}
         - name: shared-config
