@@ -1,24 +1,5 @@
 {{/*
-=============================================================================
-Trivy cache PVC — Trivy runs as a sidecar in the backend pod.
-The cache PVC persists the vulnerability database across restarts.
-=============================================================================
+Trivy runs as a sidecar in the backend StatefulSet.
+The trivy-cache PVC is managed via volumeClaimTemplates
+in the backend StatefulSet (backend-deployment.yaml).
 */}}
-{{- if .Values.trivy.enabled }}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ include "artifact-keeper.fullname" . }}-trivy-cache
-  labels:
-    {{- include "artifact-keeper.labels" . | nindent 4 }}
-    app.kubernetes.io/component: trivy
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: {{ .Values.trivy.persistence.size }}
-  {{- if .Values.trivy.persistence.storageClass }}
-  storageClassName: {{ .Values.trivy.persistence.storageClass | quote }}
-  {{- end }}
-{{- end }}

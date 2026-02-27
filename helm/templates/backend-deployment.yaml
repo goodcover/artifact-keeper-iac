@@ -9,13 +9,14 @@ security policies, and operational needs before use in production.
 */}}
 {{- if .Values.backend.enabled }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "artifact-keeper.fullname" . }}-backend
   labels:
     {{- include "artifact-keeper.labels" . | nindent 4 }}
     app.kubernetes.io/component: backend
 spec:
+  serviceName: {{ include "artifact-keeper.fullname" . }}-backend
   {{- if not .Values.backend.autoscaling.enabled }}
   replicas: {{ .Values.backend.replicaCount }}
   {{- end }}
@@ -267,24 +268,43 @@ spec:
             {{- end }}
         {{- end }}
       volumes:
-        - name: storage
-          {{- if .Values.backend.persistence.enabled }}
-          persistentVolumeClaim:
-            claimName: {{ include "artifact-keeper.fullname" . }}-storage
-          {{- else }}
-          emptyDir: {}
-          {{- end }}
         {{- if .Values.backend.scanWorkspace.enabled }}
         - name: scan-workspace
           emptyDir: {}
-        {{- end }}
-        {{- if .Values.trivy.enabled }}
-        - name: trivy-cache
-          persistentVolumeClaim:
-            claimName: {{ include "artifact-keeper.fullname" . }}-trivy-cache
         {{- end }}
         {{- if .Values.dependencyTrack.enabled }}
         - name: shared-config
           emptyDir: {}
         {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+        labels:
+          {{- include "artifact-keeper.labels" . | nindent 10 }}
+          app.kubernetes.io/component: backend
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.backend.persistence.size }}
+        {{- if .Values.backend.persistence.storageClass }}
+        storageClassName: {{ .Values.backend.persistence.storageClass | quote }}
+        {{- end }}
+    {{- if .Values.trivy.enabled }}
+    - metadata:
+        name: trivy-cache
+        labels:
+          {{- include "artifact-keeper.labels" . | nindent 10 }}
+          app.kubernetes.io/component: trivy
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.trivy.persistence.size }}
+        {{- if .Values.trivy.persistence.storageClass }}
+        storageClassName: {{ .Values.trivy.persistence.storageClass | quote }}
+        {{- end }}
+    {{- end }}
 {{- end }}
